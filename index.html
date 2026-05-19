@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal Sistem Absensi Digital Face ID</title>
+    <!-- Meload Framework Kecerdasan Buatan Wajah secara Online -->
+    <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #eef2f7; margin: 0; padding: 20px; }
+        .main-container { max-width: 750px; margin: 30px auto; background: #ffffff; padding: 30px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); text-align: center; }
+        .tabs { display: flex; justify-content: space-around; margin-bottom: 25px; background: #f1f3f5; border-radius: 8px; padding: 5px; }
+        .tab-link { flex: 1; padding: 12px; cursor: pointer; border: none; background: none; font-size: 15px; font-weight: 600; color: #495057; border-radius: 6px; transition: 0.3s; }
+        .tab-link.active { background: #007bff; color: white; }
+        .content-section { display: none; }
+        .content-section.active { display: block; }
+        video { width: 100%; max-width: 460px; border-radius: 12px; background: #000; transform: scaleX(-1); border: 4px solid #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        #log-status { font-size: 16px; margin-top: 15px; font-weight: bold; color: #495057; }
+        input[type="text"], input[type="password"], select { width: 85%; padding: 12px; border: 2px solid #ced4da; border-radius: 8px; font-size: 16px; margin: 10px 0; outline: none; box-sizing: border-box; }
+        .action-btn { background: #007bff; color: white; border: none; padding: 12px 30px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600; margin: 10px; }
+        .action-btn:hover { background: #0056b3; }
+        .btn-success { background: #28a745; }
+        .btn-success:hover { background: #218838; }
+        
+        /* Layout Lembar Cetak Laporan Resmi */
+        .report-area { margin-top: 25px; text-align: left; }
+        .kop-surat { display: none; text-align: center; margin-bottom: 20px; border-bottom: 4px double #000; padding-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; }
+        th, td { border: 1px solid #000; padding: 10px; text-align: left; font-size: 14px; }
+        th { background: #f2f2f2; }
+
+        /* SCRIPT CSS MASTER CETAK PRINTER */
+        @media print {
+            body { background: white; padding: 0; margin: 0; }
+            .main-container { box-shadow: none; margin: 0; padding: 0; max-width: 100%; }
+            .tabs, .action-btn, p, h2, h3, select, input, .no-print { display: none !important; }
+            .content-section { display: none !important; }
+            #cetak-laporan { display: block !important; }
+            .kop-surat { display: block !important; }
+            th { background: #f2f2f2 !important; -webkit-print-color-adjust: exact; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="main-container">
+    <!-- Navigasi Menu Atas -->
+    <div class="tabs no-print">
+        <button class="tab-link active" onclick="pindahTab('scan-wajah')">Mesin Scan Wajah</button>
+        <button class="tab-link" onclick="pindahTab('cek-ortu')">Monitoring Orang Tua</button>
+        <button class="tab-link" onclick="pindahTab('cetak-laporan')">Cetak Laporan (Admin)</button>
+    </div>
+
+    <!-- PANEL 1: REGISTRASI & ABSENSI KAMERA -->
+    <div id="scan-wajah" class="content-section active">
+        <h2>Absensi Wajah Aktif</h2>
+        <p style="color: #6c757d;">Dekatkan wajah Anda ke kamera pemindai</p>
+        <video id="webcam" autoplay muted playsinline></video>
+        <div id="log-status">Memuat modul kecerdasan buatan AI Face...</div>
+    </div>
+
+    <!-- PANEL 2: AKSES MONITORING ORANG TUA -->
+    <div id="cek-ortu" class="content-section">
+        <h2>Pencarian Riwayat Kehadiran Siswa</h2>
+        <p style="color: #6c757d;">Masukkan NISN anak untuk pelacakan tanggal masuk</p>
+        <input type="text" id="inputNisn" placeholder="Masukkan Nomor NISN...">
+        <br>
+        <button class="action-btn" onclick="lakukanPencarianOrtu()">Periksa Kehadiran</button>
+        <div id="wrapperHasil" class="report-area"></div>
+    </div>
+
+    <!-- PANEL 3: LOGIN & INTEGRASI CETAK DOKUMEN LAPORAN -->
+    <div id="cetak-laporan" class="content-section">
+        <div id="admin-login">
+            <h3>Akses Terbatas Administrator</h3>
+            <input type="password" id="passAdmin" placeholder="Masukkan Kata Sandi Administrator...">
+            <br>
+            <button class="action-btn" onclick="verifikasiAdmin()">Validasi Masuk</button>
+        </div>
+
+        <div id="admin-panel" style="display: none;">
+            <div class="no-print">
+                <h3>Ekstrak & Cetak Laporan Kehadiran Fisik</h3>
+                <input type="text" id="pilihKelas" placeholder="Ketik Nama Kelas... (Contoh: X-RPL)">
+                <br>
+                <button class="action-btn" onclick="loadLaporanKelas()">Tampilkan Berkas</button>
+                <button class="action-btn btn-success" onclick="window.print()">Cetak ke Kertas / PDF</button>
+            </div>
+
+            <div class="report-area">
+                <!-- Struktur Dokumen Cetak Sekolah -->
+                <div class="kop-surat">
+                    <h2 style="margin: 0; text-transform: uppercase;">SMK SWASTA SINAR HARAPAN</h2>
+                    <p style="margin: 5px 0 0 0; font-size: 14px;">Kecamatan Beringin, Kabupaten Deli Serdang</p>
+                    <p style="margin: 2px 0 0 0; font-size: 12px; font-style: italic;">Dokumen Laporan Kehadiran Siswa Berbasis Biometrik Wajah</p>
+                </div>
+                <h3 id="judulLaporanTabel" style="text-align: center; display: none;">DAFTAR REKAPITULASI PRESENSI KELAS: <span id="namaKelasAktif"></span></h3>
+                <div id="tabelLaporanContainer"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Taruh URL Aplikasi Web Google Script Anda di bawah ini
+    const URL_BACKEND = "<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal Sistem Absensi Digital Face ID</title>
+    <!-- Meload Framework Kecerdasan Buatan Wajah secara Online -->
+    <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #eef2f7; margin: 0; padding: 20px; }
+        .main-container { max-width: 750px; margin: 30px auto; background: #ffffff; padding: 30px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); text-align: center; }
+        .tabs { display: flex; justify-content: space-around; margin-bottom: 25px; background: #f1f3f5; border-radius: 8px; padding: 5px; }
+        .tab-link { flex: 1; padding: 12px; cursor: pointer; border: none; background: none; font-size: 15px; font-weight: 600; color: #495057; border-radius: 6px; transition: 0.3s; }
+        .tab-link.active { background: #007bff; color: white; }
+        .content-section { display: none; }
+        .content-section.active { display: block; }
+        video { width: 100%; max-width: 460px; border-radius: 12px; background: #000; transform: scaleX(-1); border: 4px solid #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        #log-status { font-size: 16px; margin-top: 15px; font-weight: bold; color: #495057; }
+        input[type="text"], input[type="password"], select { width: 85%; padding: 12px; border: 2px solid #ced4da; border-radius: 8px; font-size: 16px; margin: 10px 0; outline: none; box-sizing: border-box; }
+        .action-btn { background: #007bff; color: white; border: none; padding: 12px 30px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600; margin: 10px; }
+        .action-btn:hover { background: #0056b3; }
+        .btn-success { background: #28a745; }
+        .btn-success:hover { background: #218838; }
+        
+        /* Layout Lembar Cetak Laporan Resmi */
+        .report-area { margin-top: 25px; text-align: left; }
+        .kop-surat { display: none; text-align: center; margin-bottom: 20px; border-bottom: 4px double #000; padding-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; }
+        th, td { border: 1px solid #000; padding: 10px; text-align: left; font-size: 14px; }
+        th { background: #f2f2f2; }
+
+        /* SCRIPT CSS MASTER CETAK PRINTER */
+        @media print {
+            body { background: white; padding: 0; margin: 0; }
+            .main-container { box-shadow: none; margin: 0; padding: 0; max-width: 100%; }
+            .tabs, .action-btn, p, h2, h3, select, input, .no-print { display: none !important; }
+            .content-section { display: none !important; }
+            #cetak-laporan { display: block !important; }
+            .kop-surat { display: block !important; }
+            th { background: #f2f2f2 !important; -webkit-print-color-adjust: exact; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="main-container">
+    <!-- Navigasi Menu Atas -->
+    <div class="tabs no-print">
+        <button class="tab-link active" onclick="pindahTab('scan-wajah')">Mesin Scan Wajah</button>
+        <button class="tab-link" onclick="pindahTab('cek-ortu')">Monitoring Orang Tua</button>
+        <button class="tab-link" onclick="pindahTab('cetak-laporan')">Cetak Laporan (Admin)</button>
+    </div>
+
+    <!-- PANEL 1: REGISTRASI & ABSENSI KAMERA -->
+    <div id="scan-wajah" class="content-section active">
+        <h2>Absensi Wajah Aktif</h2>
+        <p style="color: #6c757d;">Dekatkan wajah Anda ke kamera pemindai</p>
+        <video id="webcam" autoplay muted playsinline></video>
+        <div id="log-status">Memuat modul kecerdasan buatan AI Face...</div>
+    </div>
+
+    <!-- PANEL 2: AKSES MONITORING ORANG TUA -->
+    <div id="cek-ortu" class="content-section">
+        <h2>Pencarian Riwayat Kehadiran Siswa</h2>
+        <p style="color: #6c757d;">Masukkan NISN anak untuk pelacakan tanggal masuk</p>
+        <input type="text" id="inputNisn" placeholder="Masukkan Nomor NISN...">
+        <br>
+        <button class="action-btn" onclick="lakukanPencarianOrtu()">Periksa Kehadiran</button>
+        <div id="wrapperHasil" class="report-area"></div>
+    </div>
+
+    <!-- PANEL 3: LOGIN & INTEGRASI CETAK DOKUMEN LAPORAN -->
+    <div id="cetak-laporan" class="content-section">
+        <div id="admin-login">
+            <h3>Akses Terbatas Administrator</h3>
+            <input type="password" id="passAdmin" placeholder="Masukkan Kata Sandi Administrator...">
+            <br>
+            <button class="action-btn" onclick="verifikasiAdmin()">Validasi Masuk</button>
+        </div>
+
+        <div id="admin-panel" style="display: none;">
+            <div class="no-print">
+                <h3>Ekstrak & Cetak Laporan Kehadiran Fisik</h3>
+                <input type="text" id="pilihKelas" placeholder="Ketik Nama Kelas... (Contoh: X-RPL)">
+                <br>
+                <button class="action-btn" onclick="loadLaporanKelas()">Tampilkan Berkas</button>
+                <button class="action-btn btn-success" onclick="window.print()">Cetak ke Kertas / PDF</button>
+            </div>
+
+            <div class="report-area">
+                <!-- Struktur Dokumen Cetak Sekolah -->
+                <div class="kop-surat">
+                    <h2 style="margin: 0; text-transform: uppercase;">SMK SWASTA SINAR HARAPAN</h2>
+                    <p style="margin: 5px 0 0 0; font-size: 14px;">Kecamatan Beringin, Kabupaten Deli Serdang</p>
+                    <p style="margin: 2px 0 0 0; font-size: 12px; font-style: italic;">Dokumen Laporan Kehadiran Siswa Berbasis Biometrik Wajah</p>
+                </div>
+                <h3 id="judulLaporanTabel" style="text-align: center; display: none;">DAFTAR REKAPITULASI PRESENSI KELAS: <span id="namaKelasAktif"></span></h3>
+                <div id="tabelLaporanContainer"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Taruh URL Aplikasi Web Google Script Anda di bawah ini
+    const URL_BACKEND = "GANTI_DENGAN_URL_WEB_APP_GOOGLE_SCRIPT_ANDA";
+
+    function pindahTab(targetId) {
+        document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
+        document.querySelectorAll('.tab-link').forEach(b => b.classList.remove('active'));
+        document.getElementById(targetId).classList.add('active');
+        if(event) event.target.classList.add('active');
+        if(targetId === 'scan-wajah') { aktifkanKamera(); } else { matikanKamera(); }
+    }
+
+    let streaming = null;
+    const videoEl = document.getElementById('webcam');
+    const statusTxt = document.getElementById('log-status');
+
+    Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights'),
+        faceapi.nets.faceLandmark68Net.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights'),
+        faceapi.nets.faceRecognitionNet.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights')
+    ]).then(aktifkanKamera);
+
+    function aktifkanKamera() {
+        if (streaming) return;
+        navigator.mediaDevices.getUserMedia({ video: {} })
+            .then(s => { videoEl.srcObject = s; streaming = s; statusTxt.innerText = "Sistem Face ID Aktif."; mulaiPemindaianWajah(); })
+            .catch(() => { statusTxt.innerText = "Akses kamera ditolak."; });
+    }
+
+    function matikanKamera() {
+        if(streaming) { streaming.getTracks().forEach(t => t.stop()); streaming = null; }
+    }
+
+    function mulaiPemindaianWajah() {
+        const tracker = setInterval(async () => {
+            if(!streaming) { clearInterval(tracker); return; }
+            const hasilDeteksi = await faceapi.detectSingleFace(videoEl, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+            if (hasilDeteksi) { 
+                clearInterval(tracker); 
+                statusTxt.innerHTML = "<span style='color:orange'>Mencocokkan sidik wajah...</span>"; 
+                submitAbsenKeGoogle(hasilDeteksi.descriptor); 
+                // Trik Pengembang: Salin teks log di bawah jika ingin mendaftarkan koordinat siswa baru manual ke Sheets
+                console.log(JSON.stringify(Array.from(hasilDeteksi.descriptor)));
+            }
+        }, 1500);
+    }
+
+    function submitAbsenKeGoogle(descriptor) {
+        fetch(URL_BACKEND, {
+            method: "POST", mode: "no-cors", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "absen", descriptor: Array.from(descriptor) })
+        })
+        .then(() => {
+            statusTxt.innerHTML = "<span style='color: green;'>Absen Sukses Terkirim!</span>";
+            setTimeout(() => { mulaiPemindaianWajah(); statusTxt.innerText = "Sistem Face ID Aktif."; }, 3000);
+        }).catch(() => { setTimeout(mulaiPemindaianWajah, 3000); });
+    }
+
+    function lakukanPencarianOrtu() {
+        const nisn = document.getElementById('inputNisn').value;
+        const boxHasil = document.getElementById('wrapperHasil');
+        if(!nisn) { alert("NISN wajib diisi!"); return; }
+        boxHasil.innerHTML = "Menghubungi cloud server...";
+        
+        fetch(URL_BACKEND, { method: "POST", body: JSON.stringify({ action: "cek_ortu", nisn: nisn }) })
+        .then(r => r.json()).then(res => {
+            if(res.success && res.data.length > 0) {
+                let tabel = `<h4>Nama Siswa: ${res.data[0].nama} (${res.data[0].kelas})</h4><table><thead><tr><th>Waktu Absen</th><th>Status</th><th>Keterangan</th></tr></thead><tbody>`;
+                res.data.forEach(item => { tabel += `<tr><td>${item.waktu}</td><td><b style="color:green">${item.status}</b></td><td><b>${item.keterangan}</b></td></tr>`; });
+                boxHasil.innerHTML = tabel + "</tbody></table>";
+            } else { boxHasil.innerHTML = "<b style='color:red'>Data kosong atau NISN salah.</b>"; }
+        });
+    }
+
+    // --- LOGIK BACKEND PANEL CETAK ADMIN ---
+    let savedPassword = "";
+    function verifikasiAdmin() {
+        savedPassword = document.getElementById('passAdmin').value;
+        document.getElementById('admin-login').style.display = 'none';
+        document.getElementById('admin-panel').style.display = 'block';
+    }
+
+    function loadLaporanKelas() {
+        const kelasSelected = document.getElementById('pilihKelas').value;
+        const containerTabel = document.getElementById('tabelLaporanContainer');
+        const judulLaporan = document.getElementById('judulLaporanTabel');
+        if(!kelasSelected) { alert("Ketik nama kelas!"); return; }
+        
+        containerTabel.innerHTML = "Menarik data log kelas...";
+        fetch(URL_BACKEND, { method: "POST", body: JSON.stringify({ action: "ambil_laporan", kelas: kelasSelected, password: savedPassword }) })
+        .then(r => r.json()).then(res => {
+            if(res.success && res.data.length > 0) {
+                document.getElementById('namaKelasAktif').innerText = kelasSelected;
+                judulLaporan.style.display = 'block';
+                let html = `<table><thead><tr><th>No</th><th>Tanggal</th><th>Jam Scan</th><th>NISN</th><th>Nama Siswa</th><th>Status</th><th>Keterangan</th></tr></thead><tbody>`;
+                res.data.forEach((row, idx) => {
+                    html += `<tr><td>${idx+1}</td><td>${row.tanggal}</td><td>${row.waktu}</td><td>${row.nisn}</td><td>${row.nama}</td><td>Hadir</td><td>${row.keterangan}</td></tr>`;
+                });
+                containerTabel.innerHTML = html + "</tbody></table>";
+            } else { containerTabel.innerHTML = "<p style='color:red'>Data tidak ditemukan/Sandi salah.</p>"; }
+        });
+    }
+</script>
+</body>
+</html>";
+
+    function pindahTab(targetId) {
+        document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
+        document.querySelectorAll('.tab-link').forEach(b => b.classList.remove('active'));
+        document.getElementById(targetId).classList.add('active');
+        if(event) event.target.classList.add('active');
+        if(targetId === 'scan-wajah') { aktifkanKamera(); } else { matikanKamera(); }
+    }
+
+    let streaming = null;
+    const videoEl = document.getElementById('webcam');
+    const statusTxt = document.getElementById('log-status');
+
+    Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights'),
+        faceapi.nets.faceLandmark68Net.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights'),
+        faceapi.nets.faceRecognitionNet.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights')
+    ]).then(aktifkanKamera);
+
+    function aktifkanKamera() {
+        if (streaming) return;
+        navigator.mediaDevices.getUserMedia({ video: {} })
+            .then(s => { videoEl.srcObject = s; streaming = s; statusTxt.innerText = "Sistem Face ID Aktif."; mulaiPemindaianWajah(); })
+            .catch(() => { statusTxt.innerText = "Akses kamera ditolak."; });
+    }
+
+    function matikanKamera() {
+        if(streaming) { streaming.getTracks().forEach(t => t.stop()); streaming = null; }
+    }
+
+    function mulaiPemindaianWajah() {
+        const tracker = setInterval(async () => {
+            if(!streaming) { clearInterval(tracker); return; }
+            const hasilDeteksi = await faceapi.detectSingleFace(videoEl, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+            if (hasilDeteksi) { 
+                clearInterval(tracker); 
+                statusTxt.innerHTML = "<span style='color:orange'>Mencocokkan sidik wajah...</span>"; 
+                submitAbsenKeGoogle(hasilDeteksi.descriptor); 
+                // Trik Pengembang: Salin teks log di bawah jika ingin mendaftarkan koordinat siswa baru manual ke Sheets
+                console.log(JSON.stringify(Array.from(hasilDeteksi.descriptor)));
+            }
+        }, 1500);
+    }
+
+    function submitAbsenKeGoogle(descriptor) {
+        fetch(URL_BACKEND, {
+            method: "POST", mode: "no-cors", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "absen", descriptor: Array.from(descriptor) })
+        })
+        .then(() => {
+            statusTxt.innerHTML = "<span style='color: green;'>Absen Sukses Terkirim!</span>";
+            setTimeout(() => { mulaiPemindaianWajah(); statusTxt.innerText = "Sistem Face ID Aktif."; }, 3000);
+        }).catch(() => { setTimeout(mulaiPemindaianWajah, 3000); });
+    }
+
+    function lakukanPencarianOrtu() {
+        const nisn = document.getElementById('inputNisn').value;
+        const boxHasil = document.getElementById('wrapperHasil');
+        if(!nisn) { alert("NISN wajib diisi!"); return; }
+        boxHasil.innerHTML = "Menghubungi cloud server...";
+        
+        fetch(URL_BACKEND, { method: "POST", body: JSON.stringify({ action: "cek_ortu", nisn: nisn }) })
+        .then(r => r.json()).then(res => {
+            if(res.success && res.data.length > 0) {
+                let tabel = `<h4>Nama Siswa: ${res.data[0].nama} (${res.data[0].kelas})</h4><table><thead><tr><th>Waktu Absen</th><th>Status</th><th>Keterangan</th></tr></thead><tbody>`;
+                res.data.forEach(item => { tabel += `<tr><td>${item.waktu}</td><td><b style="color:green">${item.status}</b></td><td><b>${item.keterangan}</b></td></tr>`; });
+                boxHasil.innerHTML = tabel + "</tbody></table>";
+            } else { boxHasil.innerHTML = "<b style='color:red'>Data kosong atau NISN salah.</b>"; }
+        });
+    }
+
+    // --- LOGIK BACKEND PANEL CETAK ADMIN ---
+    let savedPassword = "";
+    function verifikasiAdmin() {
+        savedPassword = document.getElementById('passAdmin').value;
+        document.getElementById('admin-login').style.display = 'none';
+        document.getElementById('admin-panel').style.display = 'block';
+    }
+
+    function loadLaporanKelas() {
+        const kelasSelected = document.getElementById('pilihKelas').value;
+        const containerTabel = document.getElementById('tabelLaporanContainer');
+        const judulLaporan = document.getElementById('judulLaporanTabel');
+        if(!kelasSelected) { alert("Ketik nama kelas!"); return; }
+        
+        containerTabel.innerHTML = "Menarik data log kelas...";
+        fetch(URL_BACKEND, { method: "POST", body: JSON.stringify({ action: "ambil_laporan", kelas: kelasSelected, password: savedPassword }) })
+        .then(r => r.json()).then(res => {
+            if(res.success && res.data.length > 0) {
+                document.getElementById('namaKelasAktif').innerText = kelasSelected;
+                judulLaporan.style.display = 'block';
+                let html = `<table><thead><tr><th>No</th><th>Tanggal</th><th>Jam Scan</th><th>NISN</th><th>Nama Siswa</th><th>Status</th><th>Keterangan</th></tr></thead><tbody>`;
+                res.data.forEach((row, idx) => {
+                    html += `<tr><td>${idx+1}</td><td>${row.tanggal}</td><td>${row.waktu}</td><td>${row.nisn}</td><td>${row.nama}</td><td>Hadir</td><td>${row.keterangan}</td></tr>`;
+                });
+                containerTabel.innerHTML = html + "</tbody></table>";
+            } else { containerTabel.innerHTML = "<p style='color:red'>Data tidak ditemukan/Sandi salah.</p>"; }
+        });
+    }
+</script>
+</body>
+</html>
